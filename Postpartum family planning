@@ -1,0 +1,175 @@
+
+* post-partum family planning 
+
+* Step 1
+* remove the leading blanks for the months after the interview
+gen trim_cal=trim(vcal_1)
+
+* search for the last birth in the calendar
+gen lb=strpos(trim_cal,"B")
+
+* equivalent to months 12-59 preceding the survey
+gen birth1_5=inrange(lb,12,59)
+
+* split into strings separated by births ("B") for  postpartum period
+split trim_cal, p("B") gen(pp)
+
+* only want pp1, following the most recent birth
+foreach x of varlist pp* {
+  if "`x'" != "pp1" {
+    drop `x' 
+  }
+}
+               ********** Step 2
+** postbirth is defined as a 12 character string as that is the maximum length we will extract
+gen postbirth=reverse(pp1) if birth1_5 == 1
+
+****  extract the first 12 months period
+replace postbirth=substr(postbirth,1,11)
+
+
+****Step 3
+* see if anything happened in the first 12 month period
+gen used_month = indexnot(postbirth,"0")
+
+* if no birth in the period of 12-59 months
+replace used_month = 0 if birth1_5 != 1 
+
+* get the methods for the method used during the pregnancy
+gen method_used = substr(postbirth,used_month,0) if used_month > 1
+
+*** something was found, but it may be a pregnancy/termination,
+replace used_month = 0 if used_month > 1 & inlist(method_used,"P","T")
+replace method_used = "1" if used_month == 0
+
+
+* Step 4
+* generate postpartum family planning
+gen ppfp=0 if birth1_5 == 1
+* update ppfp if used a traditional method
+replace ppfp = 1 if used_month > 1
+* modern method used in the 12 months after birth
+replace ppfp = 2 if used_month > 1 & strpos("1234567LOECFGS",method_used) > 1
+
+* label
+label variable ppfp "Used modern method within 12 months of birth"
+label def used 0 "no method used" 1 "traditional method used" 2 "modern method used"
+label val ppfp used
+
+* Step 5
+* weight the data and tabulate
+gen wt=v005/1000000
+ta ppfp [iw=wt]
+
+**** Drop women age gropup above 30
+drop if v013== 3
+drop if v013== 4
+drop if v013== 5
+drop if v013== 6
+drop if v013== 7
+
+
+**Controlling Variables
+
+* above 4 ANC viists for most recent pregnancy (matched)
+recode m14_1 (0/3 =0 "below 4") (4/29 =1  "4 or more ")  (else=.), gen(anc4)
+label variable anc4 "ANC_visit"
+ta anc4 [iw=wt]
+
+*Institutional delivery (syntax ok)
+recode m15_1 (11/14 =0 "Home") (21/32=1 "Inst"), gen(place)
+label variable place "Institutional delivery"
+ta place [iw=wt]
+
+*********************************pnc for mothers [within 42 days-Matched with report but doubt]
+*Fxing denominator
+gen time=v008-b3
+gen lbirth=1 if time<60
+ta lbirth
+
+*pnc for home delivery and after discharge within 42 days (1)      
+recode m61 (100/304=1 "Yes") (305/998=0 "NO"), gen(mpnc1)
+ta mpnc1 [iw=wt]
+
+*pnc for institutional delivery before discharge within 42 days         
+recode m51 (100/303=1 "PNC 3-42 days") (304/998=0 "NO"), gen(mpnc1)
+ta mpnc [iw=wt]                                                       
+
+*respondent's health professional checked up after delivery (2)
+recode m62 (11/13=1 "skilled health personnel") (20/96=0 "Others"), gen(mpnch) 
+ta mpnch [iw=wt]
+
+*pnc for mothers within 42 days [ 1 & 2 ] 
+gen fmpnc=0
+replace fmpnc=1 if (m62_1==1) | (mpnc1==1 & mpnch==1)
+ta fmpnc if lbirth==1 [iw=wt]
+
+
+***************Explanatory variables**********
+
+**mothers age group: V013
+****Women education status: v106
+***Place of Residence (R/U):  v025 or v102
+***Wealth Index: v190
+recode v130 (1= 1 "hindu") (2= 2 "muslims") (3/9= 3 "others"), gen (religious)   ///Religion
+recode s116 (1= 1 "SC") (2= 2 "ST") (3= 3 "OBC")(4/7= 4 "Others"),gen(Caste)         ///Caste
+
+**Region of residence: 
+recode v024 (7 19 33=1 "Central") (25 12 14 28 29 34 6=2 "North") (5  35 15=3 "East") (3 4 20/25 30 32=4 "North-East") (10  20 8 9=5 "West") (2 16 31 36 1 18 27=6 "South"), gen(region)
+
+*****Media exposure to family planning
+gen Media=.
+replace Media=1 if  v384a==0 &  v384b==0 
+replace Media=2 if v384a==0 &  v384b==0 
+replace Media=3 if v384a==1 &  v384b==1 
+
+label define Media 1"no exposure" 2"exposure through print media" 3"exposure through electronic media"
+label val Media Media
+ta Media [iw=wt]
+
+****Fertility preference (want next child soon/want later/want no more)
+recode v602 (1= 1 "want another child") (2= 2 "want no more") (3/4= 3 "Sterilized or infecund") (else=.),gen(Fertility_preference)         ///Fertility preference
+** drop never had sex
+
+**********Desire for more number of children ( 1=1 "Wanted soon" / 2/4= 2 "Wanted later" / 5/7= 3 "Wanted no more" (Sterilized or infecund) (else =. )
+//***     Desire for more number of children or Fertility preference (Wanted another children/ Wanted no more/ Sterilized or infecund) 
+
+*desire for more/additional children (No/Yes) ** drop never had sex
+recode v605 (1/4=1 "Yes") (5/7=0 "No") (else =. ),gen(desire)
+
+
+*Knowledge of modern contraceptives
+recode v301 (3= 1 "Yes") (0/2= 0 "No"),gen(Know_modern_contraceptive)    /// not inculded as the % is universal
+
+
+** parity
+ta parity [iw=wt]
+
+**** No of living children (0, 1, 2+)
+recode v218 (0= 0 "0") (1/1= 1 "1") (2/8= 2 "2+"),gen(living_children)        
+
+*** Currently breastfeeding (N/Y) v404
+
+* mother's age at last birth (years): <20, 20-29, 30-39, 40-49 
+gen months_age=b3_01-V011
+gen mo_age_at_birth=1 if months_age<20*12
+replace mo_age_at_birth=2 if months_age>=20*12 & months_age<29*12
+replace mo_age_at_birth=3 if months_age>=29*12 & months_age<39*12
+replace mo_age_at_birth=4 if months_age>=39*12 & months_age<49*12
+drop months_age
+
+
+*****received family planning advice (N/Y) 
+ta s438e_1
+
+*husband's desire for children /// Sample 41,246
+ta v621 
+
+
+****Ever use FP (N/Y) 
+gen EVER_Modern=.
+replace EVER_Modern = 0 if s321a==0 & s321b==0 & s321c==0 & s321d==0 & s321e==0 & s321g==0 & s321h==0 & s321i==0 & s321j==0 & s321l==0 & s321x==0 
+replace EVER_Modern = 1 if s321a==1 | s321b==1 | s321c==1 | s321d==1 | s321e==1 | s321g==1 | s321h==1 | s321i==1 | s321j==1 | s321l==1 | s321x==1 
+
+
+
